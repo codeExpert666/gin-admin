@@ -1,3 +1,4 @@
+// Package middleware 提供了各种 Web 中间件功能
 package middleware
 
 import (
@@ -7,48 +8,60 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// CORSConfig 定义了跨域资源共享(CORS)的配置结构
+// CORS 允许浏览器向跨源服务器，发出 XMLHttpRequest 请求
 type CORSConfig struct {
-	Enable          bool
+	// Enable 表示是否启用 CORS 中间件
+	Enable bool
+	// AllowAllOrigins 表示是否允许所有来源的跨域请求
 	AllowAllOrigins bool
-	// AllowOrigins is a list of origins a cross-domain request can be executed from.
-	// If the special "*" value is present in the list, all origins will be allowed.
-	// Default value is []
+	// AllowOrigins 定义允许的跨域请求来源列表
+	// 如果包含 "*"，则允许所有来源
+	// 默认为空列表 []
 	AllowOrigins []string
-	// AllowMethods is a list of methods the client is allowed to use with
-	// cross-domain requests. Default value is simple methods (GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS)
+	// AllowMethods 定义允许的 HTTP 请求方法列表
+	// 默认值包括：GET, POST, PUT, PATCH, DELETE, HEAD 和 OPTIONS
 	AllowMethods []string
-	// AllowHeaders is list of non simple headers the client is allowed to use with
-	// cross-domain requests.
+	// AllowHeaders 定义允许的非简单请求头列表
+	// 用于指定允许跨域请求时可以使用的 HTTP 请求头
 	AllowHeaders []string
-	// AllowCredentials indicates whether the request can include user credentials like
-	// cookies, HTTP authentication or client side SSL certificates.
+	// AllowCredentials 表示是否允许跨域请求携带认证信息
+	// 例如 cookies、HTTP 认证信息或客户端 SSL 证书
 	AllowCredentials bool
-	// ExposeHeaders indicates which headers are safe to expose to the API of a CORS
-	// API specification
+	// ExposeHeaders 定义可以暴露给客户端的响应头列表
 	ExposeHeaders []string
-	// MaxAge indicates how long (with second-precision) the results of a preflight request
-	// can be cached
+	// MaxAge 定义预检请求的缓存时间（以秒为单位）
+	// 在该时间内，浏览器无需再次发送预检请求
 	MaxAge int
-	// Allows to add origins like http://some-domain/*, https://api.* or http://some.*.subdomain.com
+	// AllowWildcard 允许使用通配符来指定来源
+	// 例如：http://some-domain/*, https://api.* 或 http://some.*.subdomain.com
 	AllowWildcard bool
-	// Allows usage of popular browser extensions schemas
+	// AllowBrowserExtensions 允许使用浏览器扩展的特殊协议架构
 	AllowBrowserExtensions bool
-	// Allows usage of WebSocket protocol
+	// AllowWebSockets 允许使用 WebSocket 协议
 	AllowWebSockets bool
-	// Allows usage of file:// schema (dangerous!) use it only when you 100% sure it's needed
+	// AllowFiles 允许使用 file:// 协议（危险！）
+	// 仅在确实需要时使用
 	AllowFiles bool
 }
 
+// DefaultCORSConfig 提供了默认的 CORS 配置
 var DefaultCORSConfig = CORSConfig{
+	// 默认允许所有来源
 	AllowOrigins: []string{"*"},
+	// 默认允许的 HTTP 方法
 	AllowMethods: []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
 }
 
+// CORSWithConfig 根据提供的配置创建一个 CORS 中间件
+// 返回一个 Gin 框架的处理函数
 func CORSWithConfig(cfg CORSConfig) gin.HandlerFunc {
+	// 如果未启用 CORS，返回一个空的中间件
 	if !cfg.Enable {
 		return Empty()
 	}
 
+	// 使用 gin-contrib/cors 包创建 CORS 中间件
 	return cors.New(cors.Config{
 		AllowAllOrigins:        cfg.AllowAllOrigins,
 		AllowOrigins:           cfg.AllowOrigins,

@@ -22,45 +22,64 @@ import (
 	"go.uber.org/zap"
 )
 
+// startHTTPServer 启动 HTTP 服务器
+// 参数:
+// - ctx: 上下文，用于控制服务器的生命周期
+// - injector: 依赖注入器，包含所有需要的服务实例
+// 返回:
+// - 清理函数：用于优雅关闭服务器
+// - 错误信息
 func startHTTPServer(ctx context.Context, injector *wirex.Injector) (func(), error) {
+	// 根据配置设置 Gin 的运行模式（开发/发布）
 	if config.C.IsDebug() {
 		gin.SetMode(gin.DebugMode)
 	} else {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
+	// 创建 Gin 引擎实例
 	e := gin.New()
+
+	// 添加健康检查接口
 	e.GET("/health", func(c *gin.Context) {
 		util.ResOK(c)
 	})
+
+	// 配置全局异常恢复中间件
 	e.Use(middleware.RecoveryWithConfig(middleware.RecoveryConfig{
 		Skip: config.C.Middleware.Recovery.Skip,
 	}))
+
+	// 处理不支持的 HTTP 方法
 	e.NoMethod(func(c *gin.Context) {
 		util.ResError(c, errors.MethodNotAllowed("", "Method Not Allowed"))
 	})
+
+	// 处理未找到的路由
 	e.NoRoute(func(c *gin.Context) {
 		util.ResError(c, errors.NotFound("", "Not Found"))
 	})
 
+	// 获取允许的路由前缀
 	allowedPrefixes := injector.M.RouterPrefixes()
 
-	// Register middlewares
+	// 注册中间件
 	if err := useHTTPMiddlewares(ctx, e, injector, allowedPrefixes); err != nil {
 		return nil, err
 	}
 
-	// Register routers
+	// 注册业务路由
 	if err := injector.M.RegisterRouters(ctx, e); err != nil {
 		return nil, err
 	}
 
-	// Register swagger
+	// 配置 Swagger 文档
 	if !config.C.General.DisableSwagger {
 		e.StaticFile("/openapi.json", filepath.Join(config.C.General.WorkDir, "openapi.json"))
 		e.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
 	}
 
+	// 配置静态文件服务
 	if dir := config.C.Middleware.Static.Dir; dir != "" {
 		e.Use(middleware.StaticWithConfig(middleware.StaticConfig{
 			Root:                dir,
@@ -68,6 +87,7 @@ func startHTTPServer(ctx context.Context, injector *wirex.Injector) (func(), err
 		}))
 	}
 
+	// 配置 HTTP 服务器
 	addr := config.C.General.HTTP.Addr
 	logging.Context(ctx).Info(fmt.Sprintf("HTTP server is listening on %s", addr))
 	srv := &http.Server{
@@ -78,8 +98,10 @@ func startHTTPServer(ctx context.Context, injector *wirex.Injector) (func(), err
 		IdleTimeout:  time.Second * time.Duration(config.C.General.HTTP.IdleTimeout),
 	}
 
+	// 在后台启动服务器
 	go func() {
 		var err error
+		// 判断是否启用 HTTPS
 		if config.C.General.HTTP.CertFile != "" && config.C.General.HTTP.KeyFile != "" {
 			srv.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 			err = srv.ListenAndServeTLS(config.C.General.HTTP.CertFile, config.C.General.HTTP.KeyFile)
@@ -92,6 +114,7 @@ func startHTTPServer(ctx context.Context, injector *wirex.Injector) (func(), err
 		}
 	}()
 
+	// 返回清理函数，用于优雅关闭服务器
 	return func() {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*time.Duration(config.C.General.HTTP.ShutdownTimeout))
 		defer cancel()
@@ -103,7 +126,14 @@ func startHTTPServer(ctx context.Context, injector *wirex.Injector) (func(), err
 	}, nil
 }
 
+// useHTTPMiddlewares 配置 HTTP 中间件
+// 参数:
+// - ctx: 上下文
+// - e: Gin 引擎实例
+// - injector: 依赖注入器
+// - allowedPrefixes: 允许的路由前缀列表
 func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Injector, allowedPrefixes []string) error {
+	// 配置 CORS 中间件（跨域资源共享）
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		Enable:                 config.C.Middleware.CORS.Enable,
 		AllowAllOrigins:        config.C.Middleware.CORS.AllowAllOrigins,
@@ -119,6 +149,7 @@ func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Inject
 		AllowFiles:             config.C.Middleware.CORS.AllowFiles,
 	}))
 
+	// 配置请求追踪中间件
 	e.Use(middleware.TraceWithConfig(middleware.TraceConfig{
 		AllowedPathPrefixes: allowedPrefixes,
 		SkippedPathPrefixes: config.C.Middleware.Trace.SkippedPathPrefixes,
@@ -126,6 +157,7 @@ func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Inject
 		ResponseTraceKey:    config.C.Middleware.Trace.ResponseTraceKey,
 	}))
 
+	// 配置日志中间件
 	e.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		AllowedPathPrefixes:      allowedPrefixes,
 		SkippedPathPrefixes:      config.C.Middleware.Logger.SkippedPathPrefixes,
@@ -133,12 +165,14 @@ func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Inject
 		MaxOutputResponseBodyLen: config.C.Middleware.Logger.MaxOutputResponseBodyLen,
 	}))
 
+	// 配置请求体复制中间件（用于日志记录等）
 	e.Use(middleware.CopyBodyWithConfig(middleware.CopyBodyConfig{
 		AllowedPathPrefixes: allowedPrefixes,
 		SkippedPathPrefixes: config.C.Middleware.CopyBody.SkippedPathPrefixes,
 		MaxContentLen:       config.C.Middleware.CopyBody.MaxContentLen,
 	}))
 
+	// 配置认证中间件
 	e.Use(middleware.AuthWithConfig(middleware.AuthConfig{
 		AllowedPathPrefixes: allowedPrefixes,
 		SkippedPathPrefixes: config.C.Middleware.Auth.SkippedPathPrefixes,
@@ -146,6 +180,7 @@ func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Inject
 		RootID:              config.C.General.Root.ID,
 	}))
 
+	// 配置限流中间件
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Enable:              config.C.Middleware.RateLimiter.Enable,
 		AllowedPathPrefixes: allowedPrefixes,
@@ -166,10 +201,12 @@ func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Inject
 		},
 	}))
 
+	// 配置访问控制中间件（Casbin）
 	e.Use(middleware.CasbinWithConfig(middleware.CasbinConfig{
 		AllowedPathPrefixes: allowedPrefixes,
 		SkippedPathPrefixes: config.C.Middleware.Casbin.SkippedPathPrefixes,
 		Skipper: func(c *gin.Context) bool {
+			// 如果禁用了 Casbin 或者是 Root 用户，则跳过权限检查
 			if config.C.Middleware.Casbin.Disable ||
 				util.FromIsRootUser(c.Request.Context()) {
 				return true
@@ -184,6 +221,7 @@ func useHTTPMiddlewares(_ context.Context, e *gin.Engine, injector *wirex.Inject
 		},
 	}))
 
+	// 配置 Prometheus 监控中间件
 	if config.C.Util.Prometheus.Enable {
 		e.Use(prom.GinMiddleware)
 	}

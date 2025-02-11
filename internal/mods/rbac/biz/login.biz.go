@@ -20,23 +20,28 @@ import (
 	"go.uber.org/zap"
 )
 
-// Login management for RBAC
+// Login 结构体用于处理RBAC（基于角色的访问控制）中的登录管理
+// 包含了缓存、认证、用户数据访问等必要组件
 type Login struct {
-	Cache       cachex.Cacher
-	Auth        jwtx.Auther
-	UserDAL     *dal.User
-	UserRoleDAL *dal.UserRole
-	MenuDAL     *dal.Menu
-	UserBIZ     *User
+	Cache       cachex.Cacher // 缓存接口，用于存储用户会话信息
+	Auth        jwtx.Auther   // JWT认证接口
+	UserDAL     *dal.User     // 用户数据访问层
+	UserRoleDAL *dal.UserRole // 用户角色数据访问层
+	MenuDAL     *dal.Menu     // 菜单数据访问层
+	UserBIZ     *User         // 用户业务逻辑层
 }
 
+// ParseUserID 从请求上下文中解析用户ID
+// 主要用于验证用户身份和获取用户信息
 func (a *Login) ParseUserID(c *gin.Context) (string, error) {
 	rootID := config.C.General.Root.ID
+	// 如果禁用了认证中间件，直接返回root用户ID
 	if config.C.Middleware.Auth.Disable {
 		return rootID, nil
 	}
 
 	invalidToken := errors.Unauthorized(config.ErrInvalidTokenID, "Invalid access token")
+	// 从请求中获取token
 	token := util.GetToken(c)
 	if token == "" {
 		return "", invalidToken
@@ -45,6 +50,7 @@ func (a *Login) ParseUserID(c *gin.Context) (string, error) {
 	ctx := c.Request.Context()
 	ctx = util.NewUserToken(ctx, token)
 
+	// 解析token中的用户ID
 	userID, err := a.Auth.ParseSubject(ctx, token)
 	if err != nil {
 		if err == jwtx.ErrInvalidToken {
@@ -52,10 +58,12 @@ func (a *Login) ParseUserID(c *gin.Context) (string, error) {
 		}
 		return "", err
 	} else if userID == rootID {
+		// 如果是root用户，设置特殊标记
 		c.Request = c.Request.WithContext(util.NewIsRootUser(ctx))
 		return userID, nil
 	}
 
+	// 从缓存中获取用户信息
 	userCacheVal, ok, err := a.Cache.Get(ctx, config.CacheNSForUser, userID)
 	if err != nil {
 		return "", err
@@ -65,7 +73,7 @@ func (a *Login) ParseUserID(c *gin.Context) (string, error) {
 		return userID, nil
 	}
 
-	// Check user status, if not activated, force to logout
+	// 检查用户状态，如果未激活则强制登出
 	user, err := a.UserDAL.Get(ctx, userID, schema.UserQueryOptions{
 		QueryOptions: util.QueryOptions{SelectFields: []string{"status"}},
 	})
@@ -75,11 +83,13 @@ func (a *Login) ParseUserID(c *gin.Context) (string, error) {
 		return "", invalidToken
 	}
 
+	// 获取用户角色ID列表
 	roleIDs, err := a.UserBIZ.GetRoleIDs(ctx, userID)
 	if err != nil {
 		return "", err
 	}
 
+	// 将用户信息存入缓存
 	userCache := util.UserCache{
 		RoleIDs: roleIDs,
 	}
@@ -92,15 +102,16 @@ func (a *Login) ParseUserID(c *gin.Context) (string, error) {
 	return userID, nil
 }
 
-// This function generates a new captcha ID and returns it as a `schema.Captcha` struct. The length of
-// the captcha is determined by the `config.C.Util.Captcha.Length` configuration value.
+// GetCaptcha 生成新的验证码
+// 返回验证码ID，验证码长度由配置决定
 func (a *Login) GetCaptcha(ctx context.Context) (*schema.Captcha, error) {
 	return &schema.Captcha{
 		CaptchaID: captcha.NewLen(config.C.Util.Captcha.Length),
 	}, nil
 }
 
-// Response captcha image
+// ResponseCaptcha 响应验证码图片
+// 生成验证码图片并设置相应的HTTP头
 func (a *Login) ResponseCaptcha(ctx context.Context, w http.ResponseWriter, id string, reload bool) error {
 	if reload && !captcha.Reload(id) {
 		return errors.NotFound("", "Captcha id not found")
@@ -114,6 +125,7 @@ func (a *Login) ResponseCaptcha(ctx context.Context, w http.ResponseWriter, id s
 		return err
 	}
 
+	// 设置HTTP响应头，确保验证码图片不被缓存
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Header().Set("Expires", "0")
@@ -121,6 +133,8 @@ func (a *Login) ResponseCaptcha(ctx context.Context, w http.ResponseWriter, id s
 	return nil
 }
 
+// genUserToken 生成用户访问令牌
+// 包含访问令牌、令牌类型和过期时间
 func (a *Login) genUserToken(ctx context.Context, userID string) (*schema.LoginToken, error) {
 	token, err := a.Auth.GenerateToken(ctx, userID)
 	if err != nil {
@@ -140,15 +154,17 @@ func (a *Login) genUserToken(ctx context.Context, userID string) (*schema.LoginT
 	}, nil
 }
 
+// Login 处理用户登录请求
+// 验证验证码、用户名和密码，成功后生成访问令牌
 func (a *Login) Login(ctx context.Context, formItem *schema.LoginForm) (*schema.LoginToken, error) {
-	// verify captcha
+	// 验证验证码
 	if !captcha.VerifyString(formItem.CaptchaID, formItem.CaptchaCode) {
 		return nil, errors.BadRequest(config.ErrInvalidCaptchaID, "Incorrect captcha")
 	}
 
 	ctx = logging.NewTag(ctx, logging.TagKeyLogin)
 
-	// login by root
+	// 处理root用户登录
 	if formItem.Username == config.C.General.Root.Username {
 		if formItem.Password != config.C.General.Root.Password {
 			return nil, errors.BadRequest(config.ErrInvalidUsernameOrPassword, "Incorrect username or password")
@@ -160,7 +176,7 @@ func (a *Login) Login(ctx context.Context, formItem *schema.LoginForm) (*schema.
 		return a.genUserToken(ctx, userID)
 	}
 
-	// get user info
+	// 获取普通用户信息
 	user, err := a.UserDAL.GetByUsername(ctx, formItem.Username, schema.UserQueryOptions{
 		QueryOptions: util.QueryOptions{
 			SelectFields: []string{"id", "password", "status"},
@@ -174,7 +190,7 @@ func (a *Login) Login(ctx context.Context, formItem *schema.LoginForm) (*schema.
 		return nil, errors.BadRequest("", "User status is not activated, please contact the administrator")
 	}
 
-	// check password
+	// 验证密码
 	if err := hash.CompareHashAndPassword(user.Password, formItem.Password); err != nil {
 		return nil, errors.BadRequest(config.ErrInvalidUsernameOrPassword, "Incorrect username or password")
 	}
@@ -182,7 +198,7 @@ func (a *Login) Login(ctx context.Context, formItem *schema.LoginForm) (*schema.
 	userID := user.ID
 	ctx = logging.NewUserID(ctx, userID)
 
-	// set user cache with role ids
+	// 设置用户缓存和角色信息
 	roleIDs, err := a.UserBIZ.GetRoleIDs(ctx, userID)
 	if err != nil {
 		return nil, err
@@ -196,13 +212,15 @@ func (a *Login) Login(ctx context.Context, formItem *schema.LoginForm) (*schema.
 	}
 	logging.Context(ctx).Info("Login success", zap.String("username", formItem.Username))
 
-	// generate token
+	// 生成访问令牌
 	return a.genUserToken(ctx, userID)
 }
 
+// RefreshToken 刷新用户访问令牌
 func (a *Login) RefreshToken(ctx context.Context) (*schema.LoginToken, error) {
 	userID := util.FromUserID(ctx)
 
+	// 检查用户状态
 	user, err := a.UserDAL.Get(ctx, userID, schema.UserQueryOptions{
 		QueryOptions: util.QueryOptions{
 			SelectFields: []string{"status"},
@@ -219,6 +237,8 @@ func (a *Login) RefreshToken(ctx context.Context) (*schema.LoginToken, error) {
 	return a.genUserToken(ctx, userID)
 }
 
+// Logout 处理用户登出请求
+// 销毁令牌并清除用户缓存
 func (a *Login) Logout(ctx context.Context) error {
 	userToken := util.FromUserToken(ctx)
 	if userToken == "" {
@@ -240,7 +260,8 @@ func (a *Login) Logout(ctx context.Context) error {
 	return nil
 }
 
-// Get user info
+// GetUserInfo 获取用户信息
+// 包括用户基本信息和角色信息
 func (a *Login) GetUserInfo(ctx context.Context) (*schema.User, error) {
 	if util.FromIsRootUser(ctx) {
 		return &schema.User{
@@ -263,6 +284,7 @@ func (a *Login) GetUserInfo(ctx context.Context) (*schema.User, error) {
 		return nil, errors.NotFound("", "User not found")
 	}
 
+	// 获取用户角色信息
 	userRoleResult, err := a.UserRoleDAL.Query(ctx, schema.UserRoleQueryParam{
 		UserID: userID,
 	}, schema.UserRoleQueryOptions{
@@ -276,7 +298,7 @@ func (a *Login) GetUserInfo(ctx context.Context) (*schema.User, error) {
 	return user, nil
 }
 
-// Change login password
+// UpdatePassword 修改用户登录密码
 func (a *Login) UpdatePassword(ctx context.Context, updateItem *schema.UpdateLoginPassword) error {
 	if util.FromIsRootUser(ctx) {
 		return errors.BadRequest("", "Root user cannot change password")
@@ -294,12 +316,12 @@ func (a *Login) UpdatePassword(ctx context.Context, updateItem *schema.UpdateLog
 		return errors.NotFound("", "User not found")
 	}
 
-	// check old password
+	// 验证旧密码
 	if err := hash.CompareHashAndPassword(user.Password, updateItem.OldPassword); err != nil {
 		return errors.BadRequest("", "Incorrect old password")
 	}
 
-	// update password
+	// 更新新密码
 	newPassword, err := hash.GeneratePassword(updateItem.NewPassword)
 	if err != nil {
 		return err
@@ -307,7 +329,8 @@ func (a *Login) UpdatePassword(ctx context.Context, updateItem *schema.UpdateLog
 	return a.UserDAL.UpdatePasswordByID(ctx, userID, newPassword)
 }
 
-// Query menus based on user permissions
+// QueryMenus 查询用户可访问的菜单
+// 根据用户权限返回菜单树结构
 func (a *Login) QueryMenus(ctx context.Context) (schema.Menus, error) {
 	menuQueryParams := schema.MenuQueryParam{
 		Status: schema.MenuStatusEnabled,
@@ -317,6 +340,8 @@ func (a *Login) QueryMenus(ctx context.Context) (schema.Menus, error) {
 	if !isRoot {
 		menuQueryParams.UserID = util.FromUserID(ctx)
 	}
+
+	// 查询菜单数据
 	menuResult, err := a.MenuDAL.Query(ctx, menuQueryParams, schema.MenuQueryOptions{
 		QueryOptions: util.QueryOptions{
 			OrderFields: schema.MenusOrderParams,
@@ -328,7 +353,7 @@ func (a *Login) QueryMenus(ctx context.Context) (schema.Menus, error) {
 		return menuResult.Data.ToTree(), nil
 	}
 
-	// fill parent menus
+	// 填充父级菜单
 	if parentIDs := menuResult.Data.SplitParentIDs(); len(parentIDs) > 0 {
 		var missMenusIDs []string
 		menuIDMapper := menuResult.Data.ToMap()
@@ -352,7 +377,7 @@ func (a *Login) QueryMenus(ctx context.Context) (schema.Menus, error) {
 	return menuResult.Data.ToTree(), nil
 }
 
-// Update current user info
+// UpdateUser 更新当前用户信息
 func (a *Login) UpdateUser(ctx context.Context, updateItem *schema.UpdateCurrentUser) error {
 	if util.FromIsRootUser(ctx) {
 		return errors.BadRequest("", "Root user cannot update")
@@ -366,6 +391,7 @@ func (a *Login) UpdateUser(ctx context.Context, updateItem *schema.UpdateCurrent
 		return errors.NotFound("", "User not found")
 	}
 
+	// 更新用户基本信息
 	user.Name = updateItem.Name
 	user.Phone = updateItem.Phone
 	user.Email = updateItem.Email

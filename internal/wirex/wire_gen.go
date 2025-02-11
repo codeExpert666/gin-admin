@@ -4,6 +4,7 @@
 //go:build !wireinject
 // +build !wireinject
 
+// wirex 包负责处理应用程序的依赖注入
 package wirex
 
 import (
@@ -16,27 +17,37 @@ import (
 	"github.com/LyricTian/gin-admin/v10/pkg/util"
 )
 
-// Injectors from wire.go:
-
+// BuildInjector 函数是整个应用的依赖注入构建器
+// 它接收一个 context.Context 参数，返回一个注入器实例、清理函数和可能的错误
+// 这个函数由 Wire 工具自动生成，用于构建整个应用的依赖关系图
 func BuildInjector(ctx context.Context) (*Injector, func(), error) {
+	// 初始化数据库连接
 	db, cleanup, err := InitDB(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// 初始化缓存服务
 	cacher, cleanup2, err := InitCacher(ctx)
 	if err != nil {
 		cleanup()
 		return nil, nil, err
 	}
+
+	// 初始化认证服务
 	auther, cleanup3, err := InitAuth(ctx)
 	if err != nil {
 		cleanup2()
 		cleanup()
 		return nil, nil, err
 	}
+
+	// 创建事务管理器
 	trans := &util.Trans{
 		DB: db,
 	}
+
+	// 以下是各个模块的数据访问层（DAL）初始化
 	menu := &dal.Menu{
 		DB: db,
 	}
@@ -46,6 +57,8 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 	roleMenu := &dal.RoleMenu{
 		DB: db,
 	}
+
+	// 初始化业务逻辑层（BIZ）组件
 	bizMenu := &biz.Menu{
 		Cache:           cacher,
 		Trans:           trans,
@@ -53,9 +66,13 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 		MenuResourceDAL: menuResource,
 		RoleMenuDAL:     roleMenu,
 	}
+
+	// 初始化 API 层组件
 	apiMenu := &api.Menu{
 		MenuBIZ: bizMenu,
 	}
+
+	// 初始化角色相关组件
 	role := &dal.Role{
 		DB: db,
 	}
@@ -72,6 +89,8 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 	apiRole := &api.Role{
 		RoleBIZ: bizRole,
 	}
+
+	// 初始化用户相关组件
 	user := &dal.User{
 		DB: db,
 	}
@@ -84,6 +103,8 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 	apiUser := &api.User{
 		UserBIZ: bizUser,
 	}
+
+	// 初始化登录相关组件
 	login := &biz.Login{
 		Cache:       cacher,
 		Auth:        auther,
@@ -95,6 +116,8 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 	apiLogin := &api.Login{
 		LoginBIZ: login,
 	}
+
+	// 初始化日志相关组件
 	logger := &dal.Logger{
 		DB: db,
 	}
@@ -104,6 +127,8 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 	apiLogger := &api.Logger{
 		LoggerBIZ: bizLogger,
 	}
+
+	// 初始化 RBAC（基于角色的访问控制）相关组件
 	casbinx := &rbac.Casbinx{
 		Cache:           cacher,
 		MenuDAL:         menu,
@@ -119,15 +144,21 @@ func BuildInjector(ctx context.Context) (*Injector, func(), error) {
 		LoggerAPI: apiLogger,
 		Casbinx:   casbinx,
 	}
+
+	// 初始化模块管理器
 	modsMods := &mods.Mods{
 		RBAC: rbacRBAC,
 	}
+
+	// 创建最终的注入器实例
 	injector := &Injector{
 		DB:    db,
 		Cache: cacher,
 		Auth:  auther,
 		M:     modsMods,
 	}
+
+	// 返回注入器实例和清理函数
 	return injector, func() {
 		cleanup3()
 		cleanup2()

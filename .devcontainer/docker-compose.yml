@@ -1,42 +1,69 @@
+# 指定 docker-compose 文件的版本
 version: "3"
 
+# 定义服务,每个服务都是一个独立的容器
 services:
+  # 应用服务配置
   app:
     build:
+      # 指定 Dockerfile 所在的构建上下文路径为当前目录
       context: .
+      # 指定使用的 Dockerfile 文件名
       dockerfile: Dockerfile
+    # 容器启动命令,sleep infinity 保持容器运行不退出
     command: sleep infinity
+    # 将该服务连接到指定的网络,使其能够与数据库和Redis服务通信
     networks:
       - db
       - redis
+    # 挂载卷,将本地项目目录挂载到容器的 /workspaces 目录
+    # cached 参数用于优化性能
     volumes:
       - ../..:/workspaces:cached
+    # 从.env文件加载环境变量
     env_file:
       - .env
 
+  # PostgreSQL 数据库服务配置
   db:
+    # 使用 PostgreSQL 15.3 alpine 版本镜像
     image: postgres:15.3-alpine
+    # 除非手动停止,否则容器会一直重启
     restart: unless-stopped
+    # 端口映射,将容器的5432端口映射到主机的5432端口
     ports:
       - 5432:5432
+    # 连接到 db 网络
     networks:
       - db
+    # 数据持久化,将数据存储挂载到 postgres-data 卷
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    # 从.env文件加载环境变量(如数据库密码等)
     env_file:
       - .env
 
+  # Redis 缓存服务配置
   redis:
+    # 使用最新版本的 Redis 镜像
     image: redis:latest
+    # 除非手动停止,否则容器会一直重启
     restart: unless-stopped
+    # 端口映射,将容器的6379端口映射到主机的6379端口
     ports:
       - 6379:6379
+    # 连接到 redis 网络
     networks:
       - redis
 
+# 定义数据卷,用于持久化存储数据
 volumes:
+  # PostgreSQL 数据持久化卷
   postgres-data:
 
+# 定义网络,用于容器间通信
 networks:
+  # 数据库网络
   db:
+  # Redis网络
   redis:

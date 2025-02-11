@@ -1,3 +1,4 @@
+// Package schema 定义了数据库模型的结构体和相关方法
 package schema
 
 import (
@@ -10,52 +11,57 @@ import (
 	"github.com/go-playground/validator/v10"
 )
 
+// 定义用户状态常量
 const (
-	UserStatusActivated = "activated"
-	UserStatusFreezed   = "freezed"
+	UserStatusActivated = "activated" // 用户状态：已激活
+	UserStatusFreezed   = "freezed"   // 用户状态：已冻结
 )
 
-// User management for RBAC
+// User 定义了RBAC（基于角色的访问控制）中用户管理的数据结构
+// 使用 GORM 标签来定义数据库表结构，使用 JSON 标签来定义 JSON 序列化/反序列化的字段名
 type User struct {
-	ID        string    `json:"id" gorm:"size:20;primarykey;"` // Unique ID
-	Username  string    `json:"username" gorm:"size:64;index"` // Username for login
-	Name      string    `json:"name" gorm:"size:64;index"`     // Name of user
-	Password  string    `json:"-" gorm:"size:64;"`             // Password for login (encrypted)
-	Phone     string    `json:"phone" gorm:"size:32;"`         // Phone number of user
-	Email     string    `json:"email" gorm:"size:128;"`        // Email of user
-	Remark    string    `json:"remark" gorm:"size:1024;"`      // Remark of user
-	Status    string    `json:"status" gorm:"size:20;index"`   // Status of user (activated, freezed)
-	CreatedAt time.Time `json:"created_at" gorm:"index;"`      // Create time
-	UpdatedAt time.Time `json:"updated_at" gorm:"index;"`      // Update time
-	Roles     UserRoles `json:"roles" gorm:"-"`                // Roles of user
+	ID        string    `json:"id" gorm:"size:20;primarykey;"` // 用户唯一标识符
+	Username  string    `json:"username" gorm:"size:64;index"` // 用户登录名，建立索引以提高查询性能
+	Name      string    `json:"name" gorm:"size:64;index"`     // 用户真实姓名
+	Password  string    `json:"-" gorm:"size:64;"`             // 登录密码（加密存储）。json:"-" 表示该字段不会在JSON中显示
+	Phone     string    `json:"phone" gorm:"size:32;"`         // 用户手机号
+	Email     string    `json:"email" gorm:"size:128;"`        // 用户邮箱
+	Remark    string    `json:"remark" gorm:"size:1024;"`      // 用户备注信息
+	Status    string    `json:"status" gorm:"size:20;index"`   // 用户状态（activated-已激活, freezed-已冻结）
+	CreatedAt time.Time `json:"created_at" gorm:"index;"`      // 记录创建时间
+	UpdatedAt time.Time `json:"updated_at" gorm:"index;"`      // 记录更新时间
+	Roles     UserRoles `json:"roles" gorm:"-"`                // 用户关联的角色列表，gorm:"-" 表示该字段不映射到数据库
 }
 
+// TableName 返回数据库表名
+// 通过配置文件中的格式化方法来生成最终的表名
 func (a *User) TableName() string {
 	return config.C.FormatTableName("user")
 }
 
-// Defining the query parameters for the `User` struct.
+// UserQueryParam 定义了查询用户时的参数结构
 type UserQueryParam struct {
-	util.PaginationParam
-	LikeUsername string `form:"username"`                                    // Username for login
-	LikeName     string `form:"name"`                                        // Name of user
-	Status       string `form:"status" binding:"oneof=activated freezed ''"` // Status of user (activated, freezed)
+	util.PaginationParam        // 嵌入分页参数
+	LikeUsername         string `form:"username"`                                   // 按用户名模糊查询
+	LikeName             string `form:"name"`                                       // 按真实姓名模糊查询
+	Status               string `form:"status" binding:"oneof=activated freezed '"` // 按状态查询，必须是指定值之一
 }
 
-// Defining the query options for the `User` struct.
+// UserQueryOptions 定义了查询用户时的选项
 type UserQueryOptions struct {
-	util.QueryOptions
+	util.QueryOptions // 嵌入查询选项
 }
 
-// Defining the query result for the `User` struct.
+// UserQueryResult 定义了用户查询的结果结构
 type UserQueryResult struct {
-	Data       Users
-	PageResult *util.PaginationResult
+	Data       Users                  // 查询结果数据列表
+	PageResult *util.PaginationResult // 分页信息
 }
 
-// Defining the slice of `User` struct.
+// Users 定义了用户对象的切片类型
 type Users []*User
 
+// ToIDs 将用户列表转换为ID列表
 func (a Users) ToIDs() []string {
 	var ids []string
 	for _, item := range a {
@@ -64,19 +70,21 @@ func (a Users) ToIDs() []string {
 	return ids
 }
 
-// Defining the data structure for creating a `User` struct.
+// UserForm 定义了创建或更新用户时的表单数据结构
+// binding 标签用于请求参数验证
 type UserForm struct {
-	Username string    `json:"username" binding:"required,max=64"`                // Username for login
-	Name     string    `json:"name" binding:"required,max=64"`                    // Name of user
-	Password string    `json:"password" binding:"max=64"`                         // Password for login (md5 hash)
-	Phone    string    `json:"phone" binding:"max=32"`                            // Phone number of user
-	Email    string    `json:"email" binding:"max=128"`                           // Email of user
-	Remark   string    `json:"remark" binding:"max=1024"`                         // Remark of user
-	Status   string    `json:"status" binding:"required,oneof=activated freezed"` // Status of user (activated, freezed)
-	Roles    UserRoles `json:"roles" binding:"required"`                          // Roles of user
+	Username string    `json:"username" binding:"required,max=64"`                // 用户名（必填，最大64字符）
+	Name     string    `json:"name" binding:"required,max=64"`                    // 真实姓名（必填，最大64字符）
+	Password string    `json:"password" binding:"max=64"`                         // 密码（可选，最大64字符）
+	Phone    string    `json:"phone" binding:"max=32"`                            // 手机号（可选，最大32字符）
+	Email    string    `json:"email" binding:"max=128"`                           // 邮箱（可选，最大128字符）
+	Remark   string    `json:"remark" binding:"max=1024"`                         // 备注（可选，最大1024字符）
+	Status   string    `json:"status" binding:"required,oneof=activated freezed"` // 状态（必填，必须是activated或freezed）
+	Roles    UserRoles `json:"roles" binding:"required"`                          // 用户角色（必填）
 }
 
-// A validation function for the `UserForm` struct.
+// Validate 验证用户表单数据
+// 主要验证邮箱格式是否正确
 func (a *UserForm) Validate() error {
 	if a.Email != "" && validator.New().Var(a.Email, "email") != nil {
 		return errors.BadRequest("", "Invalid email address")
@@ -84,7 +92,8 @@ func (a *UserForm) Validate() error {
 	return nil
 }
 
-// Convert `UserForm` to `User` object.
+// FillTo 将表单数据填充到用户对象中
+// 如果提供了密码，会先进行加密处理
 func (a *UserForm) FillTo(user *User) error {
 	user.Username = a.Username
 	user.Name = a.Name
@@ -93,6 +102,7 @@ func (a *UserForm) FillTo(user *User) error {
 	user.Remark = a.Remark
 	user.Status = a.Status
 
+	// 如果提供了密码，进行加密处理
 	if pass := a.Password; pass != "" {
 		hashPass, err := hash.GeneratePassword(pass)
 		if err != nil {

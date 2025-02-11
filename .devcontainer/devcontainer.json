@@ -1,8 +1,22 @@
 {
+    // 开发容器的名称,这里设置为"ginadmin"
     "name": "ginadmin",
+
+    // 指定Docker Compose配置文件的路径,用于构建开发环境
+    // 这个文件定义了所需的服务(如数据库、缓存等)
     "dockerComposeFile": "docker-compose.yml",
+
+    // 指定要使用的服务名称,对应docker-compose.yml中定义的服务
+    // 这里使用名为"app"的服务作为主要开发环境
     "service": "app",
+
+    // 设置容器内的工作目录路径
+    // ${localWorkspaceFolderBasename}是一个变量,表示本地工作区文件夹的名称
+    // 这样设置可以确保容器内的目录结构与本地保持一致
     "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+
+    // 指定要转发的端口号,允许从主机访问容器内的服务
+    // 这里转发8040端口,通常用于访问web应用
     "forwardPorts": [
         8040
     ]
