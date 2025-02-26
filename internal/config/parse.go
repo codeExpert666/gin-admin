@@ -65,6 +65,7 @@ func Load(dir string, names ...string) error {
 			err = toml.Unmarshal(buf, C)  // 解析 TOML 格式
 		}
 		// 如果解析失败，包装错误信息并返回
+		// 注意：errors.Wrapf() 方法不会对 nil 错误进行包装
 		return errors.Wrapf(err, "failed to unmarshal config %s", name)
 	}
 

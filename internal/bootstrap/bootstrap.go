@@ -52,7 +52,7 @@ func Run(ctx context.Context, runCfg RunConfig) error {
 	config.C.Middleware.Static.Dir = staticDir
 	// 打印当前配置信息
 	config.C.Print()
-	// 执行配置的预加载操作
+	// 执行 Redis 配置复用（验证码、限流器、认证服务）
 	config.C.PreLoad()
 
 	// 初始化日志系统

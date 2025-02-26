@@ -49,6 +49,7 @@ type Config struct {
 
 // New 创建并初始化一个新的 GORM 数据库实例
 func New(cfg Config) (*gorm.DB, error) {
+	// GORM 框架和底层数据库驱动之间的抽象层，是一个接口
 	var dialector gorm.Dialector
 
 	// 根据配置的数据库类型选择对应的数据库驱动
@@ -58,12 +59,15 @@ func New(cfg Config) (*gorm.DB, error) {
 		if err := createDatabaseWithMySQL(cfg.DSN); err != nil {
 			return nil, err
 		}
+		// MySQL 对 gorm.Dialector 的具体实现(gorm 中 mysql 的具体驱动)
 		dialector = mysql.Open(cfg.DSN)
 	case "postgres":
+		// PostgresSQL 对 gorm.Dialector 的具体实现
 		dialector = postgres.Open(cfg.DSN)
 	case "sqlite3":
 		// SQLite 数据库：自动创建数据库文件的目录
 		_ = os.MkdirAll(filepath.Dir(cfg.DSN), os.ModePerm)
+		// SQLite 对 gorm.Dialector 的具体实现
 		dialector = sqlite.Open(cfg.DSN)
 	default:
 		return nil, fmt.Errorf("unsupported database type: %s", cfg.DBType)
@@ -72,16 +76,16 @@ func New(cfg Config) (*gorm.DB, error) {
 	// 配置 GORM 的基本参数
 	ormCfg := &gorm.Config{
 		NamingStrategy: schema.NamingStrategy{
-			TablePrefix:   cfg.TablePrefix, // 设置表名前缀
-			SingularTable: true,            // 使用单数表名
+			TablePrefix:   cfg.TablePrefix, // 设置表名前缀（多个模块/应用共享数据库，前缀可以防止表名冲突）
+			SingularTable: true,            // 使用单数表名（User 结构体对应 user 表而不是 users）
 		},
 		Logger:      logger.Discard,  // 默认不打印日志
-		PrepareStmt: cfg.PrepareStmt, // 是否启用 prepared statement
+		PrepareStmt: cfg.PrepareStmt, // 是否启动数据库服务器 sql 语句预编译缓存（开启后相同的 sql 语句无需再编译）
 	}
 
 	// 如果开启调试模式，则使用默认日志记录器
 	if cfg.Debug {
-		ormCfg.Logger = logger.Default
+		ormCfg.Logger = logger.Default // gorm 的默认日志记录器
 	}
 
 	// 创建 GORM 数据库实例
